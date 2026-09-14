@@ -311,6 +311,66 @@ foreach ($fetes as &$f) { $f['jours'] = jours_restants($f['mois'],$f['jour']); }
 
 $now = new DateTime('now', new DateTimeZone(TZ));
 
+
+// ── Phase de lune (algorithme de Conway simplifié) ──────────────
+function moon_phase(): array {
+    $now   = time();
+    $year  = (int)date('Y', $now);
+    $month = (int)date('n', $now);
+    $day   = (int)date('j', $now);
+    // Calcul de l'âge de la lune (en jours depuis nouvelle lune)
+    $c = $e = $jd = $b = 0;
+    if ($month < 3) { $year--; $month += 12; }
+    $month++;
+    $c   = 365.25 * $year;
+    $e   = 30.6 * $month;
+    $jd  = $c + $e + $day - 694039.09;
+    $jd /= 29.5305882;
+    $b   = (int)$jd;
+    $jd -= $b;
+    $age = round($jd * 29.5305882); // jours depuis nouvelle lune (0–29)
+
+    $phases = [
+        ['nom'=>'Nouvelle Lune',        'emoji'=>'🌑', 'min'=>0,  'max'=>1 ],
+        ['nom'=>'Premier croissant',    'emoji'=>'🌒', 'min'=>1,  'max'=>7 ],
+        ['nom'=>'Premier quartier',     'emoji'=>'🌓', 'min'=>7,  'max'=>8 ],
+        ['nom'=>'Lune gibbeuse croiss.','emoji'=>'🌔', 'min'=>8,  'max'=>14],
+        ['nom'=>'Pleine Lune',          'emoji'=>'🌕', 'min'=>14, 'max'=>15],
+        ['nom'=>'Lune gibbeuse décr.',  'emoji'=>'🌖', 'min'=>15, 'max'=>21],
+        ['nom'=>'Dernier quartier',     'emoji'=>'🌗', 'min'=>21, 'max'=>22],
+        ['nom'=>'Dernier croissant',    'emoji'=>'🌘', 'min'=>22, 'max'=>29],
+    ];
+    $phase_courante = $phases[7]; // fallback
+    foreach ($phases as $p) {
+        if ($age >= $p['min'] && $age < $p['max']) { $phase_courante = $p; break; }
+    }
+    // Prochaine pleine lune et nouvelle lune
+    $jours_pleine  = ($age <= 14) ? 14 - $age : 44 - $age;
+    $jours_nouvelle = ($age == 0) ? 0 : 29 - $age;
+    $illumination  = (int)round((1 - cos($age / 29.5305882 * 2 * M_PI)) / 2 * 100);
+    return [
+        'age'            => $age,
+        'emoji'          => $phase_courante['emoji'],
+        'nom'            => $phase_courante['nom'],
+        'illumination'   => $illumination,
+        'jours_pleine'   => $jours_pleine,
+        'jours_nouvelle' => $jours_nouvelle,
+        'cycle_pct'      => round($age / 29.5 * 100),
+        'all_phases'     => $phases,
+    ];
+}
+
+// ── Fuseaux horaires ─────────────────────────────────────────────
+$villes_monde = [
+    ['nom'=>'Paris',    'tz'=>'Europe/Paris',    'emoji'=>'🇫🇷', 'hiver'=>'UTC+1', 'ete'=>'UTC+2'],
+    ['nom'=>'Moscou',   'tz'=>'Europe/Moscow',   'emoji'=>'🇷🇺', 'hiver'=>'UTC+3', 'ete'=>'UTC+3'],
+    ['nom'=>'New York', 'tz'=>'America/New_York','emoji'=>'🇺🇸', 'hiver'=>'UTC-5', 'ete'=>'UTC-4'],
+    ['nom'=>'Tokyo',    'tz'=>'Asia/Tokyo',      'emoji'=>'🇯🇵', 'hiver'=>'UTC+9', 'ete'=>'UTC+9'],
+];
+// Déterminer si on est en heure d'été pour Paris
+$estHiver = !(bool)(new DateTime('now', new DateTimeZone('Europe/Paris')))->format('I');
+$lune = moon_phase();
+
 // JSON pour les graphiques
 $chart_labels = json_encode(array_column($chart_data, 'label'));
 $chart_temps  = json_encode(array_column($chart_data, 'temperature'));
@@ -574,6 +634,78 @@ tbody tr:last-child td { border-bottom:none; }
 .fete-card:nth-child(3){animation-delay:.12s}
 .fete-card:nth-child(4){animation-delay:.18s}
 
+/* ── Lune ───────────────────────────────────────────────────── */
+.lune-card {
+    background:var(--grad-card); border:1px solid var(--border); border-radius:20px;
+    padding:1.5rem; box-shadow:var(--shadow); margin-bottom:1.5rem;
+}
+.lune-inner { display:grid; grid-template-columns:auto 1fr auto; gap:1.5rem; align-items:center; }
+@media(max-width:580px){ .lune-inner{ grid-template-columns:1fr; text-align:center; } }
+.lune-emoji  { font-size:4.5rem; line-height:1; filter:drop-shadow(0 2px 12px rgba(0,0,0,.3)); text-align:center; }
+.lune-nom    { font-family:'DM Serif Display',serif; font-size:1.5rem; color:var(--text); margin-bottom:.3rem; }
+.lune-age    { color:var(--muted); font-size:.82rem; }
+.lune-cycle-bar { background:var(--surface2); border-radius:99px; height:8px; margin:.75rem 0 .3rem; overflow:hidden; }
+.lune-cycle-fill{ height:100%; background:linear-gradient(90deg,#6b7280,#f0f0c0,#fff8b0); border-radius:99px; }
+.lune-cycle-label { font-size:.7rem; color:var(--muted); display:flex; justify-content:space-between; }
+.lune-stats  { display:flex; flex-direction:column; gap:.5rem; align-items:flex-end; }
+@media(max-width:580px){ .lune-stats{ align-items:center; flex-direction:row; justify-content:center; flex-wrap:wrap; } }
+.lune-stat-box {
+    background:var(--surface2); border-radius:10px; padding:.5rem .9rem;
+    text-align:center; min-width:90px;
+}
+.lune-stat-box .lsb-label { font-size:.65rem; color:var(--muted); text-transform:uppercase; letter-spacing:.08em; }
+.lune-stat-box .lsb-val   { font-family:'DM Serif Display',serif; font-size:1.3rem; color:var(--accent2); }
+.lune-stat-box .lsb-unit  { font-size:.68rem; color:var(--muted); }
+.lune-phases  { display:flex; gap:.4rem; flex-wrap:wrap; margin-top:1rem; justify-content:center; }
+.lune-phase-pill {
+    background:var(--surface2); border-radius:8px; padding:.3rem .65rem;
+    font-size:.72rem; color:var(--muted); display:flex; align-items:center; gap:.3rem;
+    border:1px solid transparent; transition:all .2s;
+}
+.lune-phase-pill.active {
+    background:rgba(240,240,192,.15); border-color:rgba(240,240,192,.4);
+    color:var(--text); font-weight:600;
+}
+.illumination-ring {
+    position:relative; width:80px; height:80px; margin:0 auto .5rem;
+}
+.illumination-ring svg { transform:rotate(-90deg); }
+.illumination-ring .ring-label {
+    position:absolute; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center;
+    font-size:.65rem; color:var(--muted); font-weight:600;
+    line-height:1.2;
+}
+.illumination-ring .ring-pct { font-size:1rem; color:var(--text); font-weight:700; }
+
+/* ── Horloges mondiales ─────────────────────────────────────── */
+.world-clocks {
+    display:grid; grid-template-columns:repeat(auto-fill,minmax(175px,1fr));
+    gap:1rem; margin-bottom:1.5rem;
+}
+.clock-card {
+    background:var(--grad-card); border:1px solid var(--border); border-radius:18px;
+    padding:1.25rem 1.25rem 1rem; box-shadow:var(--shadow);
+    transition:transform .2s,box-shadow .2s; position:relative; overflow:hidden;
+}
+.clock-card:hover { transform:translateY(-2px); box-shadow:var(--shadow),0 0 0 1px var(--accent); }
+.clock-card.is-home { border-color:var(--accent); }
+.clock-flag   { font-size:1.4rem; margin-bottom:.4rem; line-height:1; }
+.clock-city   { font-size:.72rem; text-transform:uppercase; letter-spacing:.1em; color:var(--muted); font-weight:600; margin-bottom:.4rem; }
+.clock-time   {
+    font-family:'DM Serif Display',serif; font-size:2rem; font-weight:400;
+    color:var(--text); font-variant-numeric:tabular-nums; line-height:1;
+}
+.clock-card.is-home .clock-time { color:var(--accent); }
+.clock-date   { font-size:.72rem; color:var(--muted); margin-top:.25rem; }
+.clock-offset { font-size:.65rem; margin-top:.4rem; display:inline-block;
+    background:var(--surface2); border-radius:6px; padding:.1rem .45rem; }
+.clock-season {
+    position:absolute; top:.75rem; right:.75rem;
+    font-size:.65rem; background:var(--surface2); border-radius:6px;
+    padding:.1rem .4rem; color:var(--muted);
+}
+
 /* ── No DB warning ──────────────────────────────────────────── */
 .db-warning {
     background:rgba(247,111,111,.1); border:1px solid rgba(247,111,111,.25);
@@ -684,6 +816,92 @@ footer a { color:var(--accent); text-decoration:none; }
         </div>
         <?php endif; ?>
     </div>
+</div>
+
+<!-- ── Lune ─────────────────────────────────────────────────────── -->
+<div class="section-title">🌙 Phase de la Lune</div>
+<div class="lune-card">
+    <div class="lune-inner">
+        <!-- Emoji + anneau illumination -->
+        <div>
+            <div class="lune-emoji"><?= $lune['emoji'] ?></div>
+            <div class="illumination-ring">
+                <svg width="80" height="80" viewBox="0 0 80 80">
+                    <circle cx="40" cy="40" r="32" fill="none" stroke="var(--surface2)" stroke-width="7"/>
+                    <circle cx="40" cy="40" r="32" fill="none" stroke="var(--accent2)" stroke-width="7"
+                        stroke-dasharray="<?= round($lune['illumination'] * 2.0106) ?> 201.06"
+                        stroke-linecap="round"/>
+                </svg>
+                <div class="ring-label">
+                    <span class="ring-pct"><?= $lune['illumination'] ?>%</span>
+                    <span>illum.</span>
+                </div>
+            </div>
+        </div>
+        <!-- Nom + cycle bar -->
+        <div>
+            <div class="lune-nom"><?= $lune['nom'] ?></div>
+            <div class="lune-age">Jour <?= $lune['age'] ?> du cycle lunaire (29,5 jours)</div>
+            <div class="lune-cycle-bar">
+                <div class="lune-cycle-fill" style="width:<?= $lune['cycle_pct'] ?>%"></div>
+            </div>
+            <div class="lune-cycle-label"><span>🌑 Nlle Lune</span><span>🌕 Pleine</span><span>🌑 Nlle</span></div>
+            <!-- Pastilles phases -->
+            <div class="lune-phases">
+                <?php foreach ($lune['all_phases'] as $p): ?>
+                <div class="lune-phase-pill <?= $p['nom']===$lune['nom']?'active':'' ?>">
+                    <?= $p['emoji'] ?> <?= $p['nom'] ?>
+                </div>
+                <?php endforeach; ?>
+            </div>
+        </div>
+        <!-- Stats prochaines phases -->
+        <div class="lune-stats">
+            <div class="lune-stat-box">
+                <div class="lsb-label">🌕 Pleine Lune</div>
+                <div class="lsb-val"><?= $lune['jours_pleine'] == 0 ? 'Ce soir' : $lune['jours_pleine'] ?></div>
+                <?php if ($lune['jours_pleine'] > 0): ?>
+                <div class="lsb-unit">jour<?= $lune['jours_pleine']>1?'s':'' ?></div>
+                <?php endif; ?>
+            </div>
+            <div class="lune-stat-box">
+                <div class="lsb-label">🌑 Nlle Lune</div>
+                <div class="lsb-val"><?= $lune['jours_nouvelle'] == 0 ? 'Auj.' : $lune['jours_nouvelle'] ?></div>
+                <?php if ($lune['jours_nouvelle'] > 0): ?>
+                <div class="lsb-unit">jour<?= $lune['jours_nouvelle']>1?'s':'' ?></div>
+                <?php endif; ?>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Horloges mondiales ────────────────────────────────────────── -->
+<div class="section-title">🌍 Horloges mondiales
+    <span style="margin-left:.75rem;font-size:.65rem;background:var(--surface2);border-radius:6px;padding:.15rem .5rem;color:var(--muted);font-weight:400;">
+        Paris : heure d'<?= $estHiver ? 'hiver (UTC+1)' : 'été (UTC+2)' ?>
+    </span>
+</div>
+<div class="world-clocks">
+    <?php foreach ($villes_monde as $v):
+        $tz_obj  = new DateTimeZone($v['tz']);
+        $dt      = new DateTime('now', $tz_obj);
+        $offset  = $dt->format('I') ? $v['ete'] : $v['hiver']; // heure été ou hiver
+        $saison  = $dt->format('I') ? 'Été' : 'Hiver';
+        $is_home = ($v['tz'] === TZ);
+        $dow_map = ['Mon'=>'Lun','Tue'=>'Mar','Wed'=>'Mer','Thu'=>'Jeu','Fri'=>'Ven','Sat'=>'Sam','Sun'=>'Dim'];
+        $day_label = $dow_map[$dt->format('D')] ?? $dt->format('D');
+    ?>
+    <div class="clock-card <?= $is_home?'is-home':'' ?>" data-tz="<?= $v['tz'] ?>">
+        <?php if (!$is_home): ?>
+        <div class="clock-season"><?= $saison ?></div>
+        <?php endif; ?>
+        <div class="clock-flag"><?= $v['emoji'] ?></div>
+        <div class="clock-city"><?= $v['nom'] ?></div>
+        <div class="clock-time" data-clock="<?= $v['tz'] ?>"><?= $dt->format('H:i:s') ?></div>
+        <div class="clock-date"><?= $day_label ?> <?= $dt->format('d/m/Y') ?></div>
+        <span class="clock-offset"><?= $offset ?></span>
+    </div>
+    <?php endforeach; ?>
 </div>
 
 <!-- ── Fêtes à venir ────────────────────────────────────────── -->
@@ -846,12 +1064,42 @@ footer a { color:var(--accent); text-decoration:none; }
 <?php endif; ?>
 
 <script>
-/* ── Horloge ─────────────────────────────────────────────────── */
+/* ── Horloge locale ─────────────────────────────────────────── */
 (function tick(){
     const el=document.getElementById('clock');
     if(el){const n=new Date(),p=v=>String(v).padStart(2,'0');el.textContent=p(n.getHours())+':'+p(n.getMinutes())+':'+p(n.getSeconds());}
     setTimeout(tick,1000);
 })();
+
+/* ── Horloges mondiales (Intl.DateTimeFormat) ─────────────────── */
+const worldClocks = document.querySelectorAll('[data-clock]');
+const dowFR = ['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'];
+
+function updateWorldClocks() {
+    worldClocks.forEach(el => {
+        const tz = el.getAttribute('data-clock');
+        const now = new Date();
+        // Heure
+        const timeFmt = new Intl.DateTimeFormat('fr-FR', {
+            timeZone: tz, hour:'2-digit', minute:'2-digit', second:'2-digit', hour12: false
+        });
+        el.textContent = timeFmt.format(now);
+        // Date dans la carte parent
+        const card = el.closest('.clock-card');
+        if (!card) return;
+        const dateFmt = new Intl.DateTimeFormat('fr-FR', {
+            timeZone: tz, weekday:'short', day:'2-digit', month:'2-digit', year:'numeric'
+        });
+        const parts   = dateFmt.formatToParts(now);
+        const get     = t => (parts.find(p=>p.type===t)||{value:''}).value;
+        const dateEl  = card.querySelector('.clock-date');
+        if (dateEl) {
+            dateEl.textContent = get('weekday') + ' ' + get('day') + '/' + get('month') + '/' + get('year');
+        }
+    });
+}
+updateWorldClocks();
+setInterval(updateWorldClocks, 1000);
 
 /* ── Thème ───────────────────────────────────────────────────── */
 const root=document.documentElement,icon=document.getElementById('themeIcon'),lbl=document.getElementById('themeLabel');
