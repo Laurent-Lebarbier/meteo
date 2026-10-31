@@ -1,0 +1,11 @@
+# Logs & temporaires
+*.log
+*.tmp
+.DS_Store
+
+# Dépendances
+node_modules/
+vendor/
+
+# Env
+.env
